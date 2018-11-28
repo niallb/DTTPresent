@@ -1,0 +1,444 @@
+﻿using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Drawing;
+using System.Data;
+using System.Text;
+using System.Windows.Forms;
+using System.Runtime.InteropServices;
+
+namespace OverlayPaint
+{
+    public partial class OverlayPaintArea : UserControl
+    {
+        public enum penType { none, softpen, marker, highlighter, brush, spray, airbrush, eraser };
+
+        private Bitmap background;
+        private int activeLayer;
+        public Bitmap PenImg
+        {
+            get
+            {
+                if ((penImages != null) && (penImages.Count > 0))
+                    return penImages[0];
+                else
+                    return null;
+            }
+        }
+
+        [DllImport("user32.dll")]
+        private static extern uint GetMessageExtraInfo();
+
+        private List<Bitmap> penImages;
+        private penType type;
+        private List<Bitmap> layers;
+        private bool drawing;
+        public bool tabletActive;
+        private Point cp;
+        public int penSize {get; private set;}
+
+        private bool pointerVis;
+        public Point pointerPos;
+
+        private int magfactor; // How extra big to make the image
+
+        public OverlayPaintArea()
+        {
+            magfactor = 1;
+            InitializeComponent();
+            this.SetStyle(ControlStyles.DoubleBuffer | ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint, true);
+            SetStyle(ControlStyles.SupportsTransparentBackColor, true);
+            this.BackColor = Color.Transparent;
+            layers = new List<Bitmap>();
+            Bitmap l1 = new Bitmap(this.Width*magfactor, this.Height*magfactor);
+            layers.Add(l1);
+            activeLayer = 0;
+            penImages = new List<Bitmap>();
+            penImages.Add(getPenImage(3, 3, Color.DarkBlue, penType.softpen, 1.0));
+            tabletActive = false;
+         }
+
+        public void GrabBackground()
+        {
+            background = new Bitmap(this.ClientRectangle.Width, this.ClientRectangle.Height);
+            Graphics g2 = Graphics.FromImage(background);
+            Point tr = PointToScreen(new Point(0,0));
+            Rectangle cr = this.Bounds;
+            g2.CopyFromScreen(tr.X, tr.Y, 0, 0, new Size(this.ClientRectangle.Width, this.ClientRectangle.Height));
+            Invalidate();
+        }
+
+        public void ClearBackground(bool maintainColours)
+        {
+            
+            if((maintainColours)&&(background != null))
+            {
+                Bitmap nbackground = new Bitmap(this.ClientRectangle.Width, this.ClientRectangle.Height);
+                Graphics g2 = Graphics.FromImage(nbackground);
+                g2.FillRectangle(Brushes.Transparent, this.ClientRectangle);
+                for (int x = 0; x < this.ClientRectangle.Width; x++)
+                {
+                    for (int y = 0; y < this.ClientRectangle.Height; y++)
+                    {
+                        if(layers[0].GetPixel(x,y).A != 0)
+                        {
+                            nbackground.SetPixel(x, y, background.GetPixel(x, y));
+                        }
+                    }
+                }
+                background = nbackground;
+            }
+            else
+                background = null;
+        }
+
+        public void setPen(int size, Color color, penType type)
+        {
+            penSize = size*magfactor;
+            penImages = new List<Bitmap>();
+            double mult = 1;
+            while ((int)(size * mult) >= 1)
+            {
+                penImages.Add(getPenImage(penSize+2, (int)(penSize * mult), color, type, mult));
+                //penImages.Add(getPenImage(penSize, penSize, color, type, mult));
+                //penImages.Add(getPenImage(penSize + 2, (int)(penSize * mult), color, type, 1.0));
+                mult -= 0.05;
+            }
+            this.type = type;
+            if (type == penType.highlighter)
+            {
+                for (int n = 0; n < penImages.Count; n++)
+                {
+                    int size2 = penImages[n].Width;
+                    int fade = size / 4;
+                    for (int x = 0; x < size2; x++)
+                    {
+                        for (int y = 0; y < size2; y++)
+                        {
+                            Color c = penImages[n].GetPixel(x, y);
+                            penImages[n].SetPixel(x, y, Color.FromArgb(c.A / fade, c));
+                        }
+                    }
+                }
+            }
+
+      /*      //Temporary pen test
+            startDrawing(10, 10, 5);
+            for(int n = 6; n<= Width -6 ; n++)
+            {
+                DrawTo(n, 10, (255 * n / Width));
+            }
+            endDrawing();
+            Graphics g = Graphics.FromImage(layers[activeLayer]);
+            for(int n = 0; n< penImages.Count; n++)
+            {
+                g.DrawImage(penImages[n], 10 + (Width / penImages.Count) * n, 20);
+                g.DrawImage(penImages[n], 10 + (Width / penImages.Count) * n, 20);
+                g.DrawImage(penImages[n], 10 + (Width / penImages.Count) * n, 20);
+            }
+            //End temp pen test */
+        }
+
+ /*       public void startTabletCapture()
+        {
+            //Here temporally
+            if (CWintabInfo.IsWintabAvailable())
+            {
+                InitDataCapture(200, 200, false);
+            }
+        }*/
+
+        public Bitmap getPenImage(int imgsize, float pensize, Color color, penType type, double pressureMultiplier)
+        {
+            if (pressureMultiplier > 1.0)
+                pressureMultiplier = 1.0;
+            if (pensize > imgsize)
+                pensize = imgsize;
+            float offset = ((float)imgsize - pensize) / 2;
+            Bitmap rawPen;
+            switch (type)
+            {
+                case penType.softpen:
+                    rawPen = new Bitmap(Properties.Resources.softpen);
+                    break;
+                case penType.airbrush:
+                    rawPen = new Bitmap(Properties.Resources.airbrush);
+                    break;
+                case penType.brush:
+                    rawPen = new Bitmap(Properties.Resources.brush);
+                    break;
+                case penType.highlighter:
+                    rawPen = new Bitmap(Properties.Resources.highlighter);
+                    break;
+                case penType.marker:
+                    rawPen = new Bitmap(Properties.Resources.marker);
+                    break;
+                case penType.spray:
+                    rawPen = new Bitmap(Properties.Resources.spray);
+                    break;
+                default: // includes eraser 
+                    rawPen = new Bitmap(Properties.Resources.softpen);
+                    break;
+            }
+            /*for (int x = 0; x < rawPen.Width; x++)
+            {
+                for (int y = 0; y < rawPen.Height; y++)
+                {
+                    Color c = rawPen.GetPixel(x, y);
+                    int newalpha = (int)((double)c.R * pressureMultiplier);
+                    rawPen.SetPixel(x, y, Color.FromArgb(newalpha, color));
+                }
+            }*/
+
+            Bitmap pen = new Bitmap(imgsize, imgsize);
+            Graphics g = Graphics.FromImage(pen);
+            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+            //g.DrawImage(rawPen, 0, 0, imgsize, imgsize);
+            g.DrawImage(rawPen, new RectangleF(offset, offset, pensize, pensize));
+             for (int x = 0; x < imgsize; x++)
+             {
+                 for (int y = 0; y < imgsize; y++)
+                 {
+                     Color c = pen.GetPixel(x,y);
+                     int newalpha = (int)((double)c.R * pressureMultiplier);
+                     pen.SetPixel(x, y, Color.FromArgb(newalpha, color));
+                 }
+             } 
+            return pen;
+        }
+
+        private void OnPaint(object sender, PaintEventArgs e)
+        {
+            if(background != null)            
+                e.Graphics.DrawImage(background,0,0);
+            foreach (Bitmap l in layers) // will need to refactor eventually to have hidden layers. 
+                e.Graphics.DrawImage(l, 0, 0, Width, Height);
+            if(pointerVis)
+            {
+                e.Graphics.DrawImage(PenImg, pointerPos);
+            }
+        }
+
+        public void showPointer(int X, int Y)
+        {
+            Point pointerNewPos = new Point(X - penSize / 2, Y - penSize / 2);
+            Rectangle invRect;
+            if(pointerVis)
+            {
+                invRect = Rectangle.Union(new Rectangle(pointerPos, PenImg.Size), new Rectangle(pointerNewPos, PenImg.Size));
+            }
+            else
+            {
+                invRect = new Rectangle(pointerNewPos, PenImg.Size);
+                pointerVis = true;
+            }           
+            pointerPos = pointerNewPos;
+            Invalidate(invRect);            
+        }
+
+        public void hidePointer()
+        {
+            if (pointerVis)
+            {
+                pointerVis = false;
+                Invalidate(new Rectangle(pointerPos, PenImg.Size));
+            }
+        }
+
+        private void OnMouseDown(object sender, System.Windows.Forms.MouseEventArgs e)
+        {
+            uint extra = GetMessageExtraInfo();
+            if (extra != 0)
+            {
+                uint id = (extra & 0x0000FFFF);
+            }
+            if (!tabletActive)
+            {
+                startDrawing(e.X, e.Y, 220);
+            }
+        }
+
+        private void OnMouseMove(object sender, System.Windows.Forms.MouseEventArgs e)
+        {
+             if (!tabletActive)
+            {
+                if (drawing)
+                {
+                    DrawTo(e.X, e.Y, 220);
+                }
+                hidePointer(); // You probably arent wanting to use mouse and pen at the same time
+            }
+        }
+
+        private void OnMouseUp(object sender, System.Windows.Forms.MouseEventArgs e)
+        {
+            if (!tabletActive)
+            {
+                endDrawing();
+            }
+        }
+
+        public void startDrawing(int sx, int sy, int pressure)
+        {
+            int x = sx * magfactor;
+            int y = sy * magfactor;
+
+            drawing = true;
+            cp = new Point(x, y);
+            //# This is the proof of concept for using a bitmap with alpha as a pen nib...
+            //Bitmap pb = new Bitmap(1, 1);
+            //pb.SetPixel(0, 0, Color.FromArgb(10, 255, 0, 0));
+
+            if (pressure > 255)
+                pressure = 255;
+            int penIdx = (int)(((255.0 - pressure) * penImages.Count) / 256);
+            Bitmap PenImg = penImages[penIdx];
+            int penSize = PenImg.Width;
+
+            Graphics g = Graphics.FromImage(layers[activeLayer]);
+            //g.DrawImage(pb, 5, 5, 20, 20);
+            switch (type)
+            {
+                case penType.eraser:
+                    erase(x, y);
+                    break;
+                case penType.highlighter:
+                    highlight(x, y, pressure);
+                    break;
+                default:
+                    g.DrawImage(PenImg, x - (float)penSize / 2, y - (float)penSize / 2);
+                    break;
+            }
+            Invalidate();
+        }
+
+        private void erase(int eX, int eY)
+        {
+            int xs = eX - penSize / 2;
+            int ys = eY - penSize / 2;
+            for (int x = 0; x < penSize; x++)
+            {
+                for (int y = 0; y < penSize; y++)
+                {
+
+                    if ((x + xs >= 0) && (x + xs < Width) && (y + ys >= 0) && (y + ys < Height))
+                    {
+                        Color c1 = PenImg.GetPixel(x, y);
+                        Color c2 = layers[activeLayer].GetPixel(x + xs, y + ys);
+                        int na = c2.A - c1.A;
+                        na = na < 0 ? 0 : na;
+                        c2 = Color.FromArgb(na, c2);
+                        layers[activeLayer].SetPixel(x + xs, y + ys, c2);
+                    }
+                }
+
+            }
+
+        }
+
+        private void highlight(int eX, int eY, int pressure)
+        {
+            if (pressure > 255)
+                pressure = 255;
+            int penIdx = (int)(((255.0 - pressure) * penImages.Count) / 256);
+            Bitmap PenImg = penImages[penIdx];
+            int penSize = PenImg.Width;
+
+            Bitmap hlb = (Bitmap)PenImg.Clone();
+            Graphics g = Graphics.FromImage(hlb);
+            int xs = eX - hlb.Width / 2;
+            int ys = eY - hlb.Height / 2;
+            g.DrawImage(layers[activeLayer], xs * -1, ys * -1);
+            for (int x = 0; x < hlb.Width; x++)
+            {
+                for (int y = 0; y < hlb.Height; y++)
+                {
+                    if ((x + xs >= 0) && (x + xs < Width) && (y + ys >= 0) && (y + ys < Height))
+                    {
+                        layers[activeLayer].SetPixel(x + xs, y + ys, hlb.GetPixel(x, y));
+                    }
+                }
+            }
+        }
+
+        public void DrawTo(int sx, int sy, int pressure)
+        {
+            int x = sx * magfactor;
+            int y = sy * magfactor;
+
+            //# This article points the way, but is way over the top compaired to what's needed.
+            //#https://social.msdn.microsoft.com/Forums/vstudio/en-US/4adbfffd-bb50-4761-b4f1-c7c13b628f4d/combine-bitmap-and-a-mask-into-one-bitmap-that-uses-alpa-to-control-the-transparency?forum=vbgeneral
+            //# The way to do this might be to create a png of the current nib/brush and draw it once for each pixel that should be drawn on.
+            //# It can then have varied transparency, and could have a pattern as well.
+            //# I'll have to think a bit about how to deal with pen pressure - maybe generate bitmaps with different alpha levels for a few increments of pressure.
+            //# Plan is to generate the drawing bitmap each time the pen colour, type, size or transparency is altered.
+            if (drawing)
+            {
+                if (pressure > 255)
+                    pressure = 255;
+                int penIdx = (int)(((255.0 - pressure) * penImages.Count) / 256);
+                Bitmap PenImg = penImages[penIdx];
+                int penSize = PenImg.Width;
+
+                Point ncp = new Point(x, y);
+                float xmag = ncp.X > cp.X ? ncp.X - cp.X : cp.X - ncp.X;
+                float ymag = ncp.Y > cp.Y ? ncp.Y - cp.Y : cp.Y - ncp.Y;
+                float maxmag = ymag > xmag ? ymag : xmag;
+                float yinc = (ncp.Y - cp.Y) / maxmag;
+                float xinc = (ncp.X - cp.X) / maxmag;
+                Graphics g = Graphics.FromImage(layers[activeLayer]);
+                for (int n = 1; n <= maxmag; n++)
+                {
+                    switch (type)
+                    {
+                        case penType.eraser:
+                            erase((int)(xinc * n) + cp.X, (int)(yinc * n) + cp.Y);
+                            break;
+                        case penType.highlighter:
+                            highlight((int)(xinc * n) + cp.X, (int)(yinc * n) + cp.Y, pressure);
+                            break;
+                        default:
+                            g.DrawImage(PenImg, (xinc * n) + cp.X - (float)penSize / 2, (yinc * n) + cp.Y - (float)penSize / 2);
+                            break;
+                    }
+                }
+                cp = ncp;
+                Invalidate();
+            }
+        }
+
+        public void endDrawing()
+        {
+            drawing = false;
+        }
+
+        private void OverlayPaint_Resize(object sender, EventArgs e)
+        {
+            for (int n = 0; n < layers.Count; n++)
+            {
+                Bitmap b = new Bitmap(layers[n], new Size(this.Width*magfactor, this.Height*magfactor));
+                layers[n] = b;
+            }
+        }
+
+         
+/*        public bool startTabletCapture()
+        {
+            if (CWintabInfo.IsWintabAvailable())
+            {
+                if (!tabletActive)
+                {
+                    InitDataCapture(10000, 10000, false);
+                    tabletActive = true;
+                }
+                else
+                {
+                    CloseCurrentContext();
+                    tabletActive = false;
+                }
+            }
+            return tabletActive;
+        }*/
+
+    }
+}

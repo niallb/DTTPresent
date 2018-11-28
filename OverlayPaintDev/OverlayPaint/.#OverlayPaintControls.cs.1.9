@@ -1,0 +1,130 @@
+﻿using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Drawing;
+using System.Data;
+using System.Linq;
+using System.Text;
+using System.Windows.Forms;
+
+namespace OverlayPaint
+{
+    public partial class OverlayPaintControls : UserControl
+    {
+        class penInfo
+        {
+            internal penInfo(int s, Color c, OverlayPaintArea.penType t)
+            {
+                size = s;
+                color = c;
+                type = t;
+            }
+
+            internal int size;
+            internal Color color;
+            internal OverlayPaintArea.penType type;
+            //internal int alpha; // not used yet.
+        }
+
+
+        private OverlayPaintArea surface;
+
+        public OverlayPaintControls()
+        {
+            InitializeComponent();
+            pen2Btn.addToGroup(pen1Btn);
+            pen3Btn.addToGroup(pen1Btn);
+            pen4Btn.addToGroup(pen1Btn);
+            pen5Btn.addToGroup(pen1Btn);
+            pen6Btn.addToGroup(pen1Btn);
+            labelBtn.addToGroup(pen1Btn);
+            eraserBtn.addToGroup(pen1Btn);
+            pen1Btn.data = new penInfo(3, Color.Black, OverlayPaintArea.penType.softpen);
+            pen2Btn.data = new penInfo(3, Color.Red, OverlayPaintArea.penType.softpen);
+            pen3Btn.data = new penInfo(3, Color.Green, OverlayPaintArea.penType.softpen);
+            pen4Btn.data = new penInfo(3, Color.Blue, OverlayPaintArea.penType.softpen);
+            pen5Btn.data = new penInfo(14, Color.Yellow, OverlayPaintArea.penType.highlighter);
+            pen6Btn.data = new penInfo(14, Color.PaleGreen, OverlayPaintArea.penType.highlighter);
+            eraserBtn.Image = Properties.Resources.eraser;
+            eraserBtn.data = new penInfo(14, Color.Black, OverlayPaintArea.penType.eraser);
+            pen1Btn.selected = true;
+            pen1Btn.SelectionChanged += pen1Btn_SelectionChanged;
+        }
+
+        public void Attach(OverlayPaintArea surface)
+        {
+            this.surface = surface;
+            pen1Btn.Image = penImageFromInfo((penInfo)pen1Btn.data);
+            pen2Btn.Image = penImageFromInfo((penInfo)pen2Btn.data);
+            pen3Btn.Image = penImageFromInfo((penInfo)pen3Btn.data);
+            pen4Btn.Image = penImageFromInfo((penInfo)pen4Btn.data);
+            pen5Btn.Image = penImageFromInfo((penInfo)pen5Btn.data);
+            pen6Btn.Image = penImageFromInfo((penInfo)pen6Btn.data);
+            penInfo p = (penInfo)pen1Btn.data;
+            this.surface.setPen(p.size, p.color, p.type);
+            //updateCurrentPenImage();
+
+        }
+
+        private Bitmap penImageFromInfo(penInfo p)
+        {
+            if (surface != null)
+            {
+                return getPenImage(surface.getPenImage(p.size, p.size, p.color, p.type, 1.0));
+            }
+            else
+            {
+                return new Bitmap(16, 16);
+            }
+        }
+
+        public void updateCurrentPenImage()
+        {
+            bitmapSwitchButton cb = pen1Btn.getSelected();
+            if ((cb != null) && (cb != eraserBtn) && (cb != labelBtn))
+            {
+                cb.Image = getPenImage(surface.PenImg);
+            }
+        }
+
+        public Bitmap getPenImage(Bitmap pen)
+        {
+            Bitmap penImg = new Bitmap(16, 16);
+            if (surface != null)
+            {
+                Graphics g = Graphics.FromImage(penImg);
+                float xp = (16 - surface.penSize) / 2;
+                float yp = (16 - surface.penSize) / 2;
+                //#g.FillRectangle(Brushes.Black, 0, 0, 15, 15);
+                g.DrawImage(pen, xp-2, yp+2);
+                g.DrawImage(pen, xp-1, yp+1);
+                g.DrawImage(pen, xp, yp);
+                g.DrawImage(pen, xp+1, yp-1);
+                g.DrawImage(pen, xp+2, yp-2);
+            }
+            return penImg;
+        }
+
+        private void button1_Click(object sender, EventArgs e)
+        {
+            if (colorDialog1.ShowDialog() == DialogResult.OK)
+            {
+                if (this.surface != null)
+                {
+                    this.surface.setPen(15, colorDialog1.Color, OverlayPaintArea.penType.brush);
+                    updateCurrentPenImage();
+                }
+            }
+        }
+
+        private void pen1Btn_SelectionChanged(object sender, EventArgs<int, bool> e)
+        {
+            if ((((bitmapSwitchButton)sender).data != null) && (this.surface != null))
+            {
+                penInfo p = (penInfo)((bitmapSwitchButton)sender).data;
+                this.surface.setPen(p.size, p.color, p.type);
+                //updateCurrentPenImage();
+            }
+        }
+    }
+}

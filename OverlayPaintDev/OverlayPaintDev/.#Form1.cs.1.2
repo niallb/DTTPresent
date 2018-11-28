@@ -1,0 +1,64 @@
+﻿using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.Linq;
+using System.Text;
+using System.Windows.Forms;
+using OverlayPaint;
+
+namespace OverlayPaintDev
+{
+    public partial class Form1 : Form
+    {
+        TabletLaunch tl;
+        bool capturing;
+
+        public Form1()
+        {
+            InitializeComponent();
+            tl = new TabletLaunch(overlayPaint1, textBox1);
+            overlayPaintControls1.Attach(overlayPaint1);
+            //TransparencyKey = Color.FromArgb(127, 127, 127);
+            //overlayPaint1.textBox1 = textBox1;
+        }
+
+        private void button1_Click(object sender, EventArgs e)
+        {
+            if (BackColor == TransparencyKey)
+            {
+                BackColor = Color.Wheat;
+                overlayPaint1.ClearBackground(true);
+            }
+            else
+                BackColor = TransparencyKey;
+        }
+
+        private void button2_Click(object sender, EventArgs e)
+        {
+            if (!capturing)
+            {
+                textBox1.Text = "";
+                tl.InitDataCapture(10000, 10000, true);
+                capturing = true;
+                button1.Text = "Stop";
+                overlayPaint1.Cursor = Cursors.Cross;
+                overlayPaint1.tabletActive = true;
+            }
+            else
+            {
+                tl.CloseCurrentContext();
+                capturing = false;
+                button1.Text = "Start";
+                overlayPaint1.tabletActive = false;
+            }
+            //overlayPaint1.GrabBackground();
+        }
+
+        private void Form1_Deactivate(object sender, EventArgs e)
+        {
+            tl.CloseCurrentContext();
+        }
+    }
+}
